@@ -18,6 +18,9 @@ from django.shortcuts import render
 from .forms import HelloForm
 
 from opencensus.trace import config_integration
+from opencensus.trace.exporters import opencensusd_exporter
+from opencensus.trace import tracer as tracer_module
+from opencensus.trace.propagation.trace_context_http_header_format import TraceContextPropagator
 
 import mysql.connector
 import psycopg2
@@ -35,9 +38,10 @@ MYSQL_PASSWORD = os.environ.get('SYSTEST_MYSQL_PASSWORD')
 # PostgreSQL settings
 POSTGRES_PASSWORD = os.environ.get('SYSTEST_POSTGRES_PASSWORD')
 
-INTEGRATIONS = ['mysql', 'postgresql', 'sqlalchemy', 'requests']
+INTEGRATIONS = ['mysql', 'postgresql', 'sqlalchemy', 'httplib']
 
-config_integration.trace_integrations(INTEGRATIONS)
+config_integration.trace_integrations(INTEGRATIONS, tracer=tracer_module.Tracer(
+    exporter=opencensusd_exporter.OpenCensusDExporter(service_name="django_hello_world"), propagator=TraceContextPropagator()))
 
 
 def home(request):
@@ -60,7 +64,8 @@ def greetings(request):
 
 
 def trace_requests(request):
-    response = requests.get('http://www.google.com')
+    response = requests.post(
+        'http://lmolkova-oc-test.azurewebsites.net/api/forward', json=[{"url": "http://blank.org"}])
     return HttpResponse(str(response.status_code))
 
 

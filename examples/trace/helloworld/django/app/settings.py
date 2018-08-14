@@ -67,9 +67,9 @@ TEMPLATES = [
 
 OPENCENSUS_TRACE = {
     'SAMPLER': 'opencensus.trace.samplers.always_on.AlwaysOnSampler',
-    'EXPORTER': 'opencensus.trace.exporters.stackdriver_exporter.StackdriverExporter',
-    'PROPAGATOR': 'opencensus.trace.propagation.google_cloud_format.'
-                  'GoogleCloudFormatPropagator',
+    'EXPORTER': 'opencensus.trace.exporters.opencensusd_exporter.OpenCensusDExporter',
+    'PROPAGATOR': 'opencensus.trace.propagation.trace_context_http_header_format.'
+                  'TraceContextPropagator',
 }
 
 OPENCENSUS_TRACE_PARAMS = {

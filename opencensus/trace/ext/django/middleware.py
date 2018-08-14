@@ -135,6 +135,10 @@ class OpencensusMiddleware(MiddlewareMixin):
                 port=_zipkin_port,
                 protocol=_zipkin_protocol,
                 transport=transport)
+        elif self._exporter.__name__ == 'OpenCensusDExporter':
+            self.exporter = self._exporter(
+                service_name='django_hello_world',  # TODO
+                transport=transport)
         else:
             self.exporter = self._exporter(transport=transport)
 
