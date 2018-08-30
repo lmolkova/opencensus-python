@@ -25,11 +25,10 @@ from google.protobuf.wrappers_pb2 import BoolValue, UInt32Value
 
 from opencensus.trace.exporters import base
 from opencensus.trace.exporters.transports import sync
-from opencensus.trace.exporters.gen.opencensusd.trace.v1 import (
-    trace_pb2,
-    trace_config_pb2
+from opencensus.trace.exporters.gen.opencensusd.trace.v1 import trace_pb2
+from opencensus.trace.exporters.gen.opencensusd.agent.common.v1 import (
+    common_pb2
 )
-from opencensus.trace.exporters.gen.opencensusd.agent.common.v1 import common_pb2
 from opencensus.trace.exporters.gen.opencensusd.agent.trace.v1 import (
     trace_service_pb2,
     trace_service_pb2_grpc
@@ -85,7 +84,8 @@ class OpenCensusDExporter(base.Exporter):
 
         self.node = common_pb2.Node(
             identifier=common_pb2.ProcessIdentifier(
-                host_name=socket.gethostname() if host_name is None else host_name,
+                host_name=socket.gethostname() if host_name is None
+                else host_name,
                 pid=os.getpid(),
                 start_timestamp=self.proto_ts_from_datetime(
                     datetime.datetime.now())
@@ -170,12 +170,12 @@ class OpenCensusDExporter(base.Exporter):
         lock = Lock()
         with lock:
             try:
-                configResponses = self.client.Config(
+                config_responses = self.client.Config(
                     self.generate_config_request(config))
 
-                agentConfig = configResponses.next()
+                agent_config = next(config_responses)
                 self.send_node_in_config = False
-                return agentConfig
+                return agent_config
             except grpc.RpcError as e:
                 self.send_node_in_config = True
                 self.send_node_in_export = True
@@ -297,8 +297,10 @@ class OpenCensusDExporter(base.Exporter):
 
         pb_message_event.type = span_data_message_event.type
         pb_message_event.id = span_data_message_event.id
-        pb_message_event.uncompressed_size = span_data_message_event.uncompressed_size_bytes
-        pb_message_event.compressed_size = span_data_message_event.compressed_size_bytes
+        pb_message_event.uncompressed_size = \
+            span_data_message_event.uncompressed_size_bytes
+        pb_message_event.compressed_size = \
+            span_data_message_event.compressed_size_bytes
 
     def set_proto_annotation(self, pb_annotation, span_data_annotation):
         """Sets properties on the protobuf Span annotation.

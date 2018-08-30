@@ -34,6 +34,7 @@ from opencensus.trace import tracestate as tracestate_module
 from opencensus.trace.exporters import opencensusd_exporter
 from opencensus.trace.exporters.gen.opencensusd.trace.v1 import trace_pb2
 from opencensus.trace.exporters.gen.opencensusd.agent.trace.v1 import trace_service_pb2
+from opencensus.trace.exporters.gen.opencensusd.trace.v1 import trace_config_pb2
 
 
 SERVICE_NAME = 'my-service'
@@ -129,7 +130,7 @@ class TestOpenCensusDExporter(unittest.TestCase):
 
     def export_iterate(self, *args, **kwargs):
         self.export_requests = list(args[0])
-        return self.export_requests
+        return iter(self.export_requests)
 
     def test_basic_span_emit(self):
         hex_encoder = codecs.getencoder('hex')
@@ -137,7 +138,7 @@ class TestOpenCensusDExporter(unittest.TestCase):
 
         # we need to make exporter iterate over passed generator,
         # otherwise iteration will happen after Export returns
-        # and it won't be possible to check if node is included
+        # and it won't be possible to check if node is included.
         # passed export request will be stored in self.export_requests
         client.Export.side_effect = self.export_iterate
 
@@ -237,6 +238,46 @@ class TestOpenCensusDExporter(unittest.TestCase):
         actual_request = self.export_requests[0]
         self.assertEqual(actual_request.node,
                          trace_service_pb2.ExportTraceServiceRequest().node)
+
+    def test_second_span_emit_after_exception_with_node(self):
+        client = mock.Mock()
+
+        span_data0 = span_data_module.SpanData(
+            name="name0",
+            context=span_context_module.SpanContext(
+                trace_id='0e0c63257de34c92bf9efcd03927272e'),
+            span_id='0e0c63257de34c92',
+            parent_span_id=None,
+            start_time=None,
+            end_time=None,
+            attributes=None,
+            child_span_count=None,
+            stack_trace=None,
+            time_events=None,
+            links=None,
+            status=None,
+            same_process_as_parent_span=None,
+            span_kind=0)
+
+        exporter = opencensusd_exporter.OpenCensusDExporter(
+            service_name=SERVICE_NAME,
+            client=client,
+            transport=MockTransport)
+
+        client.Export.side_effect = grpc.RpcError()
+        exporter.emit([span_data0])
+
+        # we need to make exporter iterate over passed generator,
+        # otherwise iteration will happen after Export returns
+        # and it won't be possible to check if node is included
+        # passed export request will be stored in self.export_requests
+        client.Export.side_effect = self.export_iterate
+
+        exporter.emit([span_data0])
+
+        self.assertEqual(len(client.Export.mock_calls), 2)
+        actual_request = self.export_requests[0]
+        self.assertEqual(actual_request.node, exporter.node)
 
     def test_basic_span_export(self):
         hex_encoder = codecs.getencoder('hex')
@@ -659,13 +700,10 @@ class TestOpenCensusDExporter(unittest.TestCase):
         exporter = opencensusd_exporter.OpenCensusDExporter(
             service_name=SERVICE_NAME,
             transport=MockTransport)
-        export_requests_gen = exporter.generate_span_requests(span_datas)
-
-        export_requests = []
-        for request in export_requests_gen:
-            export_requests.append(request)
+        export_requests = list(exporter.generate_span_requests(span_datas))
 
         self.assertEqual(len(export_requests), 1)
+        self.assertEqual(export_requests[0].node, exporter.node)
         self.assertEqual(len(export_requests[0].spans), 2)
 
         self.assertEqual(export_requests[0].spans[0].name.value, 'name0')
@@ -852,6 +890,113 @@ class TestOpenCensusDExporter(unittest.TestCase):
         proto_ts = exporter.proto_ts_from_datetime(zero)
         self.assertEqual(proto_ts.seconds, 0)
         self.assertEqual(proto_ts.nanos, 0)
+
+    def test_config_generator(self):
+
+        config = trace_config_pb2.TraceConfig(
+            constant_sampler=trace_config_pb2.ConstantSampler(
+                decision=True))
+        exporter = opencensusd_exporter.OpenCensusDExporter(
+            service_name=SERVICE_NAME,
+            transport=MockTransport)
+
+        config_requests = list(exporter.generate_config_request(config))
+
+        self.assertEqual(len(config_requests), 1)
+        self.assertEqual(config_requests[0].node, exporter.node)
+        self.assertEqual(config_requests[0].config, config)
+
+    def config_iterate(self, *args, **kwargs):
+        self.config_requests = list(args[0])
+        return iter(self.config_requests)
+
+    def test_second_config_update_without_node(self):
+        client = mock.Mock()
+
+        # we need to make exporter iterate over passed generator,
+        # otherwise iteration will happen after Config returns
+        # and it won't be possible to check if node is included.
+        # passed config request will be stored in self.config_requests
+        client.Config.side_effect = self.config_iterate
+
+        config0 = trace_config_pb2.TraceConfig(
+            constant_sampler=trace_config_pb2.ConstantSampler(
+                decision=True))
+
+        config1 = trace_config_pb2.TraceConfig(
+            constant_sampler=trace_config_pb2.ConstantSampler(
+                decision=False))
+
+        exporter = opencensusd_exporter.OpenCensusDExporter(
+            service_name=SERVICE_NAME,
+            client=client,
+            transport=MockTransport)
+
+        exporter.update_config(config0)
+
+        actual_request = self.config_requests[0]
+        self.assertIsNotNone(actual_request.node)
+        self.assertEqual(actual_request.node, exporter.node)
+
+        exporter.update_config(config1)
+
+        self.assertEqual(len(client.Config.mock_calls), 2)
+        actual_request = self.config_requests[0]
+        self.assertEqual(actual_request.node,
+                         trace_service_pb2.ConfigTraceServiceRequest().node)
+
+    def test_second_config_update_after_exception_with_node(self):
+        client = mock.Mock()
+
+        config0 = trace_config_pb2.TraceConfig(
+            constant_sampler=trace_config_pb2.ConstantSampler(
+                decision=True))
+
+        config1 = trace_config_pb2.TraceConfig(
+            constant_sampler=trace_config_pb2.ConstantSampler(
+                decision=False))
+
+        exporter = opencensusd_exporter.OpenCensusDExporter(
+            service_name=SERVICE_NAME,
+            client=client,
+            transport=MockTransport)
+
+        client.Config.side_effect = grpc.RpcError()
+        with self.assertRaises(grpc.RpcError):
+            exporter.update_config(config0)
+
+        # we need to make exporter iterate over passed generator,
+        # otherwise iteration will happen after Config returns
+        # and it won't be possible to check if node is included.
+        # passed config request will be stored in self.config_requests
+        client.Config.side_effect = self.config_iterate
+
+        exporter.update_config(config1)
+
+        self.assertEqual(len(client.Config.mock_calls), 2)
+        actual_request = self.config_requests[0]
+        self.assertEqual(actual_request.node, exporter.node)
+
+    def test_update_config_return_value(self):
+        client = mock.Mock()
+
+        client_config = trace_config_pb2.TraceConfig(
+            constant_sampler=trace_config_pb2.ConstantSampler(
+                decision=True))
+
+        agent_config = trace_config_pb2.TraceConfig(
+            probability_sampler=trace_config_pb2.ProbabilitySampler(
+                samplingProbability=0.1))
+
+        exporter = opencensusd_exporter.OpenCensusDExporter(
+            service_name=SERVICE_NAME,
+            client=client,
+            transport=MockTransport)
+
+        client.Config.return_value = iter([agent_config])
+        actual_response = exporter.update_config(client_config)
+
+        self.assertEqual(actual_response, agent_config)
 
 
 class MockTransport(object):
